@@ -1,0 +1,10 @@
+.vscode
+.clang-format
+build/
+cmake-build-debug/
+maxflow
+
+# data files
+generate/liver.n6c10/*
+generate/out.data
+generate/gengraph
