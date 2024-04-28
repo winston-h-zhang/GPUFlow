@@ -1,7 +1,3 @@
-//
-// Created by Jan Groschaft on 16.11.18.
-//
-
 /*
  * Push-relabel, FIFO active vertex selection.
  */
@@ -9,43 +5,40 @@
 #ifndef MAXFLOW_PUSH_RELABEL_FIFO_H
 #define MAXFLOW_PUSH_RELABEL_FIFO_H
 
-#include "../../common_types.h"
-#include "../../data_structures/circular_queue.h"
-#include "../../data_structures/linked_list.h"
-#include "../../data_structures/queue.h"
+#include "../common_types.h"
 #include <chrono>
 #include <iostream>
 #include <memory>
 #include <queue>
 
 namespace push_relabel_fifo {
-template <template <class> typename vector, typename T, typename U>
+
 class max_flow_instance {
     struct vertex {
-        U excess{0};
-        T label;
+        uint32_t excess{0};
+        uint32_t label;
     };
-    using pair = std::pair<T, T>;
-    vector<vector<cached_edge<T, U>>> _residual_network;
+    using pair = std::pair<uint32_t, uint32_t>;
+    std::vector<std::vector<edge>> _residual_network;
     std::unique_ptr<vertex[]> _vertices;
-    data_structures::circular_queue<T> _q;
-    data_structures::queue<pair> _distance_q;
-    T _source, _sink, _relabel_progress{0}, _relabel_threshold;
+    std::queue<uint32_t> _q;
+    std::queue<pair> _distance_q;
+    uint32_t _source, _sink, _relabel_progress{0}, _relabel_threshold;
 
     // statistics
     uint64_t _push_cnt{0}, _relabel_cnt{0}, _global_relabel_cnt{0};
 
   public:
-    max_flow_instance(vector<vector<cached_edge<T, U>>> graph, T source, T sink)
+    max_flow_instance(std::vector<std::vector<edge>> graph, uint32_t source, uint32_t sink)
         : _residual_network(std::move(graph)),
           _vertices(std::make_unique<vertex[]>(_residual_network.size())),
-          _q(data_structures::circular_queue<T>{_residual_network.size()}),
-          _distance_q(data_structures::queue<pair>{_residual_network.size()}),
+          _q(std::queue<uint32_t>{}),
+          _distance_q(std::queue<pair>{}),
           _source(source), _sink(sink) {
         init();
     }
 
-    U find_max_flow() {
+    uint32_t find_max_flow() {
         find_max_flow_inner();
 #ifdef DEBUG
         std::cout << "pushes:\t\t" << _push_cnt << std::endl;
@@ -71,7 +64,7 @@ class max_flow_instance {
     auto steal_network() { return std::move(_residual_network); }
 
   private:
-    static constexpr T ALPHA = 6, BETA = 12;
+    static constexpr uint32_t ALPHA = 6, BETA = 12;
     static constexpr double GLOBAL_RELABEL_FREQ = 0.5;
 
     void init() {
@@ -88,7 +81,7 @@ class max_flow_instance {
             }
         }
 
-        T m = 0;
+        uint32_t m = 0;
         for (auto &vec : _residual_network)
             m += vec.size();
         _relabel_threshold = _residual_network.size() * ALPHA + m / 2;
@@ -100,7 +93,8 @@ class max_flow_instance {
             if (_q.empty())
                 return;
 
-            auto vertex = _q.pop();
+            auto vertex = _q.front();
+            _q.pop();
             auto label = _vertices[vertex].label;
             discharge(vertex, label);
 
@@ -111,7 +105,7 @@ class max_flow_instance {
         }
     }
 
-    void discharge(const T vertex, T label) {
+    void discharge(const uint32_t vertex, uint32_t label) {
         while (label < _residual_network.size()) {
             if (push(vertex, label))
                 return;
@@ -119,7 +113,7 @@ class max_flow_instance {
         }
     }
 
-    bool push(const T vertex, const T label) {
+    bool push(const uint32_t vertex, const uint32_t label) {
         const auto target_label = label - 1;
         for (auto &edge : _residual_network[vertex]) {
             if (edge.r_capacity > 0 &&
@@ -144,15 +138,15 @@ class max_flow_instance {
         return false;
     }
 
-    T relabel(const T vertex) {
+    uint32_t relabel(const uint32_t vertex) {
         ++_relabel_cnt;
         _relabel_progress += BETA;
         _vertices[vertex].label = calculate_new_label(vertex);
         return _vertices[vertex].label;
     }
 
-    T calculate_new_label(const T vertex) {
-        T increase_to = _residual_network.size() - 1;
+    uint32_t calculate_new_label(const uint32_t vertex) {
+        uint32_t increase_to = _residual_network.size() - 1;
         for (auto &edge : _residual_network[vertex]) {
             if (edge.r_capacity == 0)
                 continue;
@@ -170,13 +164,15 @@ class max_flow_instance {
         for (std::size_t i = 0; i < _residual_network.size(); ++i)
             _vertices[i].label = not_reached;
 
-        _q.reset();
-        _distance_q.reset();
+        _q = std::queue<uint32_t>();
+        _distance_q = std::queue<pair>();
         _distance_q.push(std::make_pair(_sink, 0));
         _vertices[_sink].label = 0;
 
         while (!_distance_q.empty()) {
-            auto current_elem = _distance_q.pop();
+            auto current_elem = _distance_q.front();
+            _distance_q.pop();
+
             auto current_vertex = current_elem.first;
             auto current_distance = current_elem.second;
             for (auto &edge : _residual_network[current_vertex]) {

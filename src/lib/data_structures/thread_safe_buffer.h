@@ -1,7 +1,3 @@
-//
-// Created by Jan Groschaft on 2/22/19.
-//
-
 /*
  * Thread safe array, data is retrieved using the swap method.
  */

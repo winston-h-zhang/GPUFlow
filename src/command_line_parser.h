@@ -1,11 +1,3 @@
-//
-// Created by Jan Groschaft on 8.3.19.
-//
-
-/*
- * Very simple argument parsing.
- */
-
 #ifndef MAXFLOW_COMMAND_LINE_PARSER_H
 #define MAXFLOW_COMMAND_LINE_PARSER_H
 
@@ -24,12 +16,9 @@ void print_usage(std::string_view program_name) {
               << " <solver> [-f <path>] [-p <number>]\n\n";
     std::cerr << "list of possible solvers: [ek, din, prf, prh, ppr, prs, ao, "
                  "aos]\n\n";
-    std::cerr
-        << "prf:\tpush-relabel algorithm with FIFO vertex selection\n"
-        << "prh:\tpush-relabel algorithm with highest label vertex selection\n"
-        << "ppr:\tparallel push-relabel algorithm\n"
-        << "prs:\tparallel push-relabel segment algorithm\n";
-    std::cerr << "[-f <path>]:\tspecify path to a maxflow problem instance in "
+    std::cerr << "prf:\tpush-relabel algorithm with FIFO vertex selection\n"
+              << "ppr:\tparallel push-relabel algorithm\n"
+              << "[-f <path>]:\tspecify path to a maxflow problem instance in "
                  "DIMACS format. Reads from stdin if omitted.\n";
     std::cerr
         << "[-p <number>]:\tspecify max number of threads for parallel "
@@ -37,7 +26,7 @@ void print_usage(std::string_view program_name) {
            "Ignored for sequential solvers. Default = number of hw threads.\n";
 }
 
-enum class solver { ek, din, prf, prh, ppr, prs, ao, aos };
+enum class solver { prf, ppr };
 
 class command_line_parser {
     solver _solver;
@@ -46,9 +35,7 @@ class command_line_parser {
     std::size_t _thread_count = 0;
 
     std::unordered_map<std::string, solver> solver_map = {{"prf", solver::prf},
-                                                          {"prh", solver::prh},
-                                                          {"ppr", solver::ppr},
-                                                          {"prs", solver::prs}};
+                                                          {"ppr", solver::ppr}};
 
   public:
     bool parse_arguments(int argc, char **argv) {

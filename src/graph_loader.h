@@ -1,7 +1,3 @@
-//
-// Created by Jan Groschaft on 28.10.18.
-//
-
 /*
  * Loads max flow instance in DIMACS format from given input stream.
  * This implementation is not optimised and leaves a lot of space for
@@ -23,13 +19,11 @@
 #include <unordered_map>
 #include <vector>
 
-template <typename T, typename U,
-          template <typename, typename> typename EDGE = basic_edge>
 auto load_graph(std::istream &is) {
     char type;
-    T vertex_cnt, source, sink;
-    auto undefined = std::numeric_limits<T>::max();
-    std::vector<EDGE<T, U>> edges;
+    uint32_t vertex_cnt, source, sink;
+    uint32_t undefined = INT32_MAX;
+    std::vector<edge> edges;
 
     std::string line;
     std::stringstream sstr;
@@ -40,13 +34,13 @@ auto load_graph(std::istream &is) {
             break;
     }
     std::string problem_type;
-    T edge_cnt;
+    uint32_t edge_cnt;
     sstr >> problem_type;
     if (problem_type != "max")
         throw std::logic_error("Expected max flow problem instance");
     sstr >> vertex_cnt >> edge_cnt;
     edges.resize(edge_cnt * 2);
-    auto edge_map = std::vector<std::unordered_map<T, T>>(
+    auto edge_map = std::vector<std::unordered_map<uint32_t, uint32_t>>(
         vertex_cnt); // to keep track of edge positions
     std::vector<uint32_t> outgoing_edge_cnt(vertex_cnt);
 
@@ -57,8 +51,8 @@ auto load_graph(std::istream &is) {
         sstr >> type;
         switch (type) {
         case 'a': {
-            T from, to;
-            U cap;
+            uint32_t from, to;
+            uint32_t cap;
             sstr >> from >> to >> cap;
             --to;
             --from; // convert to zero based indexing
@@ -73,8 +67,8 @@ auto load_graph(std::istream &is) {
             if (it != std::end(edge_map[to]))
                 edges[it->second + 1].r_capacity += cap;
             else {
-                edges[pos] = EDGE<T, U>{to, cap, undefined};
-                edges[pos + 1] = EDGE<T, U>{from, 0, undefined};
+                edges[pos] = edge{to, cap, undefined};
+                edges[pos + 1] = edge{from, 0, undefined};
                 ++outgoing_edge_cnt[from];
                 ++outgoing_edge_cnt[to];
                 edge_map[from].emplace(to, pos);
@@ -83,7 +77,7 @@ auto load_graph(std::istream &is) {
             break;
         }
         case 'n': {
-            T vertex;
+            uint32_t vertex;
             char what;
             sstr >> vertex >> what;
             switch (what) {
@@ -109,7 +103,7 @@ auto load_graph(std::istream &is) {
     edge_map.shrink_to_fit();
 
     // alloc graph
-    std::vector<std::vector<EDGE<T, U>>> graph(vertex_cnt);
+    std::vector<std::vector<edge>> graph(vertex_cnt);
     for (std::size_t i = 0; i < graph.size(); ++i)
         graph[i].reserve(outgoing_edge_cnt[i]);
 
@@ -140,8 +134,7 @@ auto load_graph(std::istream &is) {
 }
 
 // Set reverse_r_capacity for cached edges used in push-relabel methods.
-template <typename T, typename U>
-void set_reverse_edge_cap(std::vector<std::vector<cached_edge<T, U>>> &graph) {
+void set_reverse_edge_cap(std::vector<std::vector<edge>> &graph) {
     for (auto &vec : graph)
         for (auto &edge : vec)
             edge.reverse_r_capacity =

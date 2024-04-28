@@ -1,7 +1,3 @@
-//
-// Created by Jan Groschaft on 2/22/19.
-//
-
 /*
  * Buffer which provides concurrent access to its underlying container, without
  * the need of synchronization for every insert. Each thread stores data to its

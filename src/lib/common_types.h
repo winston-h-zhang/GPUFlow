@@ -1,7 +1,3 @@
-//
-// Created by Jan Groschaft on 23.10.18.
-//
-
 #ifndef COMMON_TYPES_H
 #define COMMON_TYPES_H
 
@@ -9,29 +5,18 @@
 #include <limits>
 #include <utility>
 
-template <typename T = uint32_t, typename U = uint32_t> struct basic_edge {
-    basic_edge() = default;
+struct edge {
+    edge() = default;
 
-    basic_edge(T dst_vertex, U capacity, T reverse_edge_index)
+    edge(uint32_t dst_vertex, uint32_t capacity,
+                uint32_t reverse_edge_index)
         : dst_vertex(dst_vertex), reverse_edge_index(reverse_edge_index),
           r_capacity(capacity) {}
 
-    T dst_vertex;
-    T reverse_edge_index;
-    U r_capacity;
-};
-
-template <typename T = uint32_t, typename U = uint32_t> struct cached_edge {
-    cached_edge() = default;
-
-    cached_edge(T dst_vertex, U capacity, T reverse_edge_index)
-        : dst_vertex(dst_vertex), reverse_edge_index(reverse_edge_index),
-          r_capacity(capacity) {}
-
-    T dst_vertex;
-    T reverse_edge_index;
-    U r_capacity;
-    U reverse_r_capacity;
+    uint32_t dst_vertex;
+    uint32_t reverse_edge_index;
+    uint32_t r_capacity;
+    uint32_t reverse_r_capacity;
 };
 
 #endif // COMMON_TYPES_H

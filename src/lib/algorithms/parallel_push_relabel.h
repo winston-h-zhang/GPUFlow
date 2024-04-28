@@ -1,7 +1,3 @@
-//
-// Created by Jan Groschaft on 12/11/18.
-//
-
 /*
  * Implementation of Goldberg-Tarjan's parallel push-relabel algorithm.
  * Description can be found in Goldberg, Andrew and Tarjan, Robert, A New
@@ -15,9 +11,8 @@
 #ifndef MAXFLOW_PARALLEL_PUSH_RELABEL_H
 #define MAXFLOW_PARALLEL_PUSH_RELABEL_H
 
-#include "../../common_types.h"
-#include "../../data_structures/queue.h"
-#include "../../data_structures/thread_local_buffer_pool.h"
+#include "../common_types.h"
+#include "../data_structures/thread_local_buffer_pool.h"
 #include <algorithm>
 #include <atomic>
 #include <cassert>
@@ -31,32 +26,31 @@
 #endif
 
 namespace parallel_push_relabel {
-template <template <class> typename vector, typename T, typename U>
 class max_flow_instance {
     struct alignas(CACHE_LINE_SIZE) vertex {
-        U excess{0};
-        std::atomic<U> new_excess{0};
-        T label;
-        T new_label;
+        uint32_t excess{0};
+        std::atomic<uint32_t> new_excess{0};
+        uint32_t label;
+        uint32_t new_label;
         std::atomic_flag discovered = ATOMIC_FLAG_INIT;
     };
 
-    vector<vector<cached_edge<T, U>>> _residual_network;
+    std::vector<std::vector<edge>> _residual_network;
     std::unique_ptr<vertex[]> _vertices;
-    std::unique_ptr<T[]> _active{};
-    data_structures::thread_local_buffer_pool<T> _pool;
-    T _source, _sink, _relabel_threshold, _active_cnt;
+    std::unique_ptr<uint32_t[]> _active{};
+    data_structures::thread_local_buffer_pool<uint32_t> _pool;
+    uint32_t _source, _sink, _relabel_threshold, _active_cnt;
     std::size_t _relabel_progress;
-    const T _thread_count;
+    const uint32_t _thread_count;
 
   public:
     max_flow_instance(
-        vector<vector<cached_edge<T, U>>> graph, T source, T sink,
+        std::vector<std::vector<edge>> graph, uint32_t source, uint32_t sink,
         std::size_t thread_count = static_cast<size_t>(omp_get_max_threads()))
         : _residual_network(std::move(graph)),
           _vertices(std::make_unique<vertex[]>(_residual_network.size())),
-          _active(std::make_unique<T[]>(_residual_network.size())),
-          _pool(data_structures::thread_local_buffer_pool<T>(
+          _active(std::make_unique<uint32_t[]>(_residual_network.size())),
+          _pool(data_structures::thread_local_buffer_pool<uint32_t>(
               thread_count, _residual_network.size())),
           _source(source), _sink(sink), _active_cnt(0), _relabel_progress(0),
           _thread_count(thread_count) {
@@ -68,7 +62,7 @@ class max_flow_instance {
     uint64_t _push_cnt = 0;
     uint64_t _global_update_cnt = 0;
 
-    U find_max_flow() noexcept {
+    uint32_t find_max_flow() noexcept {
         find_max_flow_inner();
 
 #ifdef DEBUG
@@ -95,7 +89,7 @@ class max_flow_instance {
     auto steal_network() { return std::move(_residual_network); }
 
   private:
-    static constexpr T ALPHA = 6, BETA = 12;
+    static constexpr uint32_t ALPHA = 6, BETA = 12;
     static constexpr double GLOBAL_RELABEL_FREQ = 0.5;
 
     void init() noexcept {
@@ -111,7 +105,7 @@ class max_flow_instance {
             edge.r_capacity = 0;
         }
 
-        T m = 0;
+        uint32_t m = 0;
         for (std::size_t i = 0; i < _residual_network.size(); ++i)
             m += _residual_network[i].size();
         _relabel_threshold = _residual_network.size() * ALPHA + m / 2;
@@ -130,7 +124,7 @@ class max_flow_instance {
 #pragma omp parallel
             {
 #pragma omp for schedule(static) reduction(+ : push_cnt_per_phase)
-                for (T i = 0; i < _active_cnt; ++i) {
+                for (uint32_t i = 0; i < _active_cnt; ++i) {
                     auto thr_id = omp_get_thread_num();
                     auto vertex = _active[i];
                     if (_vertices[vertex].label == _residual_network.size())
@@ -140,14 +134,14 @@ class max_flow_instance {
                 }
 // stage 2
 #pragma omp for schedule(static) reduction(+ : _relabel_progress)
-                for (T i = 0; i < _active_cnt; ++i) {
+                for (uint32_t i = 0; i < _active_cnt; ++i) {
                     auto thr_id = omp_get_thread_num();
                     auto vertex = _active[i];
                     relabel(vertex, thr_id, _relabel_progress);
                 }
 // stage 3
 #pragma omp for schedule(static)
-                for (T i = 0; i < _active_cnt; ++i) {
+                for (uint32_t i = 0; i < _active_cnt; ++i) {
                     auto vertex = _active[i];
                     _vertices[vertex].label = _vertices[vertex].new_label;
                     _vertices[vertex].discovered.clear(
@@ -158,7 +152,7 @@ class max_flow_instance {
                 _active_cnt = _pool.swap_data(_active);
 
 #pragma omp for schedule(static)
-                for (T i = 0; i < _active_cnt; ++i) {
+                for (uint32_t i = 0; i < _active_cnt; ++i) {
                     auto vertex = _active[i];
                     _vertices[vertex].excess +=
                         _vertices[vertex].new_excess.load(
@@ -180,7 +174,7 @@ class max_flow_instance {
         }
     }
 
-    inline void push(const T vertex, const T label, int thr_id,
+    inline void push(const uint32_t vertex, const uint32_t label, int thr_id,
                      uint64_t &push_cnt) noexcept {
         const auto target_label = label - 1;
         for (auto &edge : _residual_network[vertex]) {
@@ -208,7 +202,7 @@ class max_flow_instance {
         }
     }
 
-    inline void relabel(const T vertex, const int thr_id,
+    inline void relabel(const uint32_t vertex, const int thr_id,
                         std::size_t &relabel_progress) noexcept {
         if (_vertices[vertex].excess > 0 ||
             _vertices[vertex].label == _residual_network.size()) {
@@ -228,8 +222,8 @@ class max_flow_instance {
             _vertices[vertex].new_label = _vertices[vertex].label;
     }
 
-    inline T calculate_new_label(const T vertex) noexcept {
-        T increase_to = _residual_network.size() - 1;
+    inline uint32_t calculate_new_label(const uint32_t vertex) noexcept {
+        uint32_t increase_to = _residual_network.size() - 1;
         for (auto &edge : _residual_network[vertex]) {
             if (edge.r_capacity == 0)
                 continue;
@@ -253,7 +247,7 @@ class max_flow_instance {
         assert(_pool.empty());
         _active[0] = _sink;
         std::size_t current_queue_size = 1;
-        T current_distance = 0;
+        uint32_t current_distance = 0;
 
         while (current_queue_size > 0) {
 #pragma omp parallel for schedule(static)

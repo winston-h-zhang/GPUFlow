@@ -5,6 +5,9 @@ cmake-build-debug/
 maxflow
 
 # data files
+generate/washington.n6c7/*
 generate/liver.n6c10/*
+generate/adhead.n6c10/*
+generate/LB07-bunny-med/*
 generate/out.data
 generate/gengraph
