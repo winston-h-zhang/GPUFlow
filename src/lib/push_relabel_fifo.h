@@ -5,7 +5,7 @@
 #ifndef MAXFLOW_PUSH_RELABEL_FIFO_H
 #define MAXFLOW_PUSH_RELABEL_FIFO_H
 
-#include "../common_types.h"
+#include "util.h"
 #include <chrono>
 #include <iostream>
 #include <memory>

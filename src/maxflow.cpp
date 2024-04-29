@@ -1,11 +1,7 @@
-//
-// Created by Jan Groschaft on 8.3.19.
-//
-
-#include "algorithms/parallel_push_relabel.h"
-#include "algorithms/push_relabel_fifo.h"
+#include "parallel_push_relabel.h"
+#include "push_relabel_fifo.h"
 #include "command_line_parser.h"
-#include "common_types.h"
+#include "util.h"
 #include "graph_loader.h"
 #include "measure.h"
 #include <fstream>

@@ -7,7 +7,7 @@
 #ifndef MAXFLOW_GRAPH_LOADER_H
 #define MAXFLOW_GRAPH_LOADER_H
 
-#include "common_types.h"
+#include "util.h"
 #include <algorithm>
 #include <cassert>
 #include <fstream>

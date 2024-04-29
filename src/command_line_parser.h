@@ -1,7 +1,7 @@
 #ifndef MAXFLOW_COMMAND_LINE_PARSER_H
 #define MAXFLOW_COMMAND_LINE_PARSER_H
 
-#include "common_types.h"
+#include "util.h"
 #include <cstring>
 #include <exception>
 #include <iostream>
@@ -14,8 +14,7 @@
 void print_usage(std::string_view program_name) {
     std::cerr << "usage: " << program_name
               << " <solver> [-f <path>] [-p <number>]\n\n";
-    std::cerr << "list of possible solvers: [ek, din, prf, prh, ppr, prs, ao, "
-                 "aos]\n\n";
+    std::cerr << "list of possible solvers: [prf, ppr]\n\n";
     std::cerr << "prf:\tpush-relabel algorithm with FIFO vertex selection\n"
               << "ppr:\tparallel push-relabel algorithm\n"
               << "[-f <path>]:\tspecify path to a maxflow problem instance in "

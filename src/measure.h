@@ -1,11 +1,7 @@
-//
-// Created by Jan Groschaft on 28.10.18.
-//
-
 #ifndef MAXFLOW_MEASURE_H
 #define MAXFLOW_MEASURE_H
 
-#include "common_types.h"
+#include "util.h"
 #include <cassert>
 #include <chrono>
 #include <iostream>
