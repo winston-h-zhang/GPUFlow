@@ -75,7 +75,7 @@ int main(int argc, char *argv[]) {
     auto solver = parser.get_solver();
     auto solver_str = parser.get_solver_str();
     auto file_path = parser.get_filename();
-    auto thr_cnt = parser.get_thread_count();
+    auto thr_cnt = parser.getnthreads();
 
     std::ifstream in_file;
     auto &stream = get_input_stream(in_file, file_path);

@@ -5,42 +5,46 @@
 #ifndef MAXFLOW_THREAD_SAFE_BUFFER_H
 #define MAXFLOW_THREAD_SAFE_BUFFER_H
 
-#include <atomic>
 #include <cstring>
 #include <memory>
+#include <mutex>
 
 namespace data_structures {
 template <typename T> class thread_safe_buffer {
-  std::unique_ptr<T[]> _buffer;
-  std::atomic<std::size_t> _pos;
+    std::unique_ptr<T[]> _buffer;
+    std::size_t _pos;
+    std::mutex mutex;
 
-public:
-  explicit thread_safe_buffer(std::size_t size)
-      : _buffer(std::make_unique<T[]>(size)), _pos(0) {}
+  public:
+    explicit thread_safe_buffer(std::size_t size)
+        : _buffer(std::make_unique<T[]>(size)), _pos(0) {}
 
-  void clear() const noexcept { _pos = 0; }
+    void clear() noexcept { 
+        std::lock_guard guard(mutex);
+        _pos = 0; 
+    }
 
-  bool empty() const noexcept { return _pos == 0; }
+    bool empty() noexcept { return _pos == 0; }
 
-  void append(const T *const data, std::size_t size) noexcept {
-    auto begin = _pos.fetch_add(size, std::memory_order_relaxed);
-    std::memcpy(_buffer.get() + begin, data, size * sizeof(T));
-  }
+    void append(const T *const data, std::size_t size) noexcept {
+        std::lock_guard guard(mutex);
+        std::memcpy(_buffer.get() + _pos, data, size * sizeof(T));
+        _pos += size;
+    }
 
-  void push_back(const T &val) noexcept {
-    auto current = _pos.fetch_add(1, std::memory_order_relaxed);
-    _buffer[current] = val;
-  }
+    void push_back(const T &val) noexcept {
+        std::lock_guard guard(mutex);
+        _buffer[_pos] = val;
+        _pos++;
+    }
 
-  std::size_t size() const noexcept {
-    return _pos.load(std::memory_order_relaxed);
-  }
+    std::size_t size() noexcept { return _pos; }
 
-  void swap_data(std::unique_ptr<T[]> &other) noexcept {
-    using std::swap;
-    _buffer.swap(other);
-    _pos.store(0, std::memory_order_relaxed);
-  }
+    void swap_data(std::unique_ptr<T[]> &other) noexcept {
+        std::lock_guard guard(mutex);
+        _buffer.swap(other);
+        _pos = 0;
+    }
 };
 } // namespace data_structures
 

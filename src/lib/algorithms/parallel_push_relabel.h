@@ -35,40 +35,40 @@ class max_flow_instance {
         std::atomic_flag discovered = ATOMIC_FLAG_INIT;
     };
 
-    std::vector<std::vector<edge>> _residual_network;
+    std::vector<std::vector<edge>> residual;
     std::unique_ptr<vertex[]> _vertices;
     std::unique_ptr<uint32_t[]> _active{};
     data_structures::thread_local_buffer_pool<uint32_t> _pool;
-    uint32_t _source, _sink, _relabel_threshold, _active_cnt;
+    uint32_t _source, _sink, _relabel_threshold, nactive;
     std::size_t _relabel_progress;
-    const uint32_t _thread_count;
+    const uint32_t nthreads;
 
   public:
     max_flow_instance(
         std::vector<std::vector<edge>> graph, uint32_t source, uint32_t sink,
         std::size_t thread_count = static_cast<size_t>(omp_get_max_threads()))
-        : _residual_network(std::move(graph)),
-          _vertices(std::make_unique<vertex[]>(_residual_network.size())),
-          _active(std::make_unique<uint32_t[]>(_residual_network.size())),
+        : residual(std::move(graph)),
+          _vertices(std::make_unique<vertex[]>(residual.size())),
+          _active(std::make_unique<uint32_t[]>(residual.size())),
           _pool(data_structures::thread_local_buffer_pool<uint32_t>(
-              thread_count, _residual_network.size())),
-          _source(source), _sink(sink), _active_cnt(0), _relabel_progress(0),
-          _thread_count(thread_count) {
-        omp_set_num_threads(static_cast<int>(_thread_count));
+              thread_count, residual.size())),
+          _source(source), _sink(sink), nactive(0), _relabel_progress(0),
+          nthreads(thread_count) {
+        omp_set_num_threads(static_cast<int>(nthreads));
         init();
     }
 
-    uint64_t _phase_cnt = 0;
-    uint64_t _push_cnt = 0;
-    uint64_t _global_update_cnt = 0;
+    uint64_t nphase = 0;
+    uint64_t npush = 0;
+    uint64_t nupdate = 0;
 
     uint32_t find_max_flow() noexcept {
         find_max_flow_inner();
 
 #ifdef DEBUG
-        std::cout << "global updates:\t" << _global_update_cnt << std::endl;
-        std::cout << "phase cnt: " << _phase_cnt << std::endl;
-        std::cout << "pushes: " << _push_cnt << std::endl;
+        std::cout << "global updates:\t" << nupdate << std::endl;
+        std::cout << "phase cnt: " << nphase << std::endl;
+        std::cout << "pushes: " << npush << std::endl;
 #endif
         return _vertices[_sink].new_excess + _vertices[_sink].excess;
     }
@@ -78,7 +78,7 @@ class max_flow_instance {
         find_max_flow_inner();
         std::swap(_source, _sink);
 #ifdef DEBUG
-        for (std::size_t i = 0; i < _residual_network.size(); ++i)
+        for (std::size_t i = 0; i < residual.size(); ++i)
             if (i != _source && i != _sink)
                 if (_vertices[i].excess > 0)
                     std::cerr << "Excess violation: vertex " << i << ", excess "
@@ -86,7 +86,7 @@ class max_flow_instance {
 #endif
     }
 
-    auto steal_network() { return std::move(_residual_network); }
+    auto steal_network() { return std::move(residual); }
 
   private:
     static constexpr uint32_t ALPHA = 6, BETA = 12;
@@ -94,108 +94,100 @@ class max_flow_instance {
 
     void init() noexcept {
 #pragma omp parallel for schedule(static)
-        for (std::size_t i = 0; i < _residual_network[_source].size(); ++i) {
-            auto &edge = _residual_network[_source][i];
-            _vertices[edge.dst_vertex].excess = edge.r_capacity;
-            edge.reverse_r_capacity += edge.r_capacity;
-            _residual_network[edge.dst_vertex][edge.reverse_edge_index]
-                .r_capacity += edge.r_capacity;
-            _residual_network[edge.dst_vertex][edge.reverse_edge_index]
-                .reverse_r_capacity -= edge.r_capacity;
-            edge.r_capacity = 0;
+        for (std::size_t i = 0; i < residual[_source].size(); ++i) {
+            auto &edge = residual[_source][i];
+            auto &rev_edge = residual[edge.dst][edge.rev_index];
+
+            _vertices[edge.dst].excess = edge.cap;
+            edge.rev_cap += edge.cap;
+            rev_edge.cap += edge.cap;
+            rev_edge.rev_cap -= edge.cap;
+            edge.cap = 0;
         }
 
         uint32_t m = 0;
-        for (std::size_t i = 0; i < _residual_network.size(); ++i)
-            m += _residual_network[i].size();
-        _relabel_threshold = _residual_network.size() * ALPHA + m / 2;
+        for (std::size_t i = 0; i < residual.size(); ++i)
+            m += residual[i].size();
+        _relabel_threshold = residual.size() * ALPHA + m / 2;
     }
 
     void find_max_flow_inner() {
         global_relabel();
 
         for (;;) {
-            if (_active_cnt == 0)
+            if (nactive == 0)
                 return;
 
-            ++_phase_cnt;
-            uint64_t push_cnt_per_phase = 0;
+            ++nphase;
+            uint64_t push_per_phase = 0;
 
 #pragma omp parallel
             {
-#pragma omp for schedule(static) reduction(+ : push_cnt_per_phase)
-                for (uint32_t i = 0; i < _active_cnt; ++i) {
+#pragma omp for schedule(static) reduction(+ : push_per_phase)
+                for (uint32_t i = 0; i < nactive; ++i) {
                     auto thr_id = omp_get_thread_num();
-                    auto vertex = _active[i];
-                    if (_vertices[vertex].label == _residual_network.size())
+                    auto vid = _active[i];
+                    auto &vertex = _vertices[vid];
+                    if (vertex.label == residual.size())
                         continue;
-                    push(vertex, _vertices[vertex].label, thr_id,
-                         push_cnt_per_phase);
+                    push(vid, vertex.label, thr_id, push_per_phase);
                 }
 // stage 2
 #pragma omp for schedule(static) reduction(+ : _relabel_progress)
-                for (uint32_t i = 0; i < _active_cnt; ++i) {
+                for (uint32_t i = 0; i < nactive; ++i) {
                     auto thr_id = omp_get_thread_num();
                     auto vertex = _active[i];
                     relabel(vertex, thr_id, _relabel_progress);
                 }
 // stage 3
 #pragma omp for schedule(static)
-                for (uint32_t i = 0; i < _active_cnt; ++i) {
-                    auto vertex = _active[i];
-                    _vertices[vertex].label = _vertices[vertex].new_label;
-                    _vertices[vertex].discovered.clear(
-                        std::memory_order_relaxed);
+                for (uint32_t i = 0; i < nactive; ++i) {
+                    auto &vertex = _vertices[_active[i]];
+                    vertex.label = vertex.new_label;
+                    vertex.discovered.clear(std::memory_order_relaxed);
                 }
 // stage 4
 #pragma omp single
-                _active_cnt = _pool.swap_data(_active);
+                nactive = _pool.swap_data(_active);
 
 #pragma omp for schedule(static)
-                for (uint32_t i = 0; i < _active_cnt; ++i) {
-                    auto vertex = _active[i];
-                    _vertices[vertex].excess +=
-                        _vertices[vertex].new_excess.load(
-                            std::memory_order_relaxed);
-                    _vertices[vertex].new_excess.store(
-                        0, std::memory_order_relaxed);
-                    _vertices[vertex].discovered.clear(
-                        std::memory_order_relaxed);
+                for (uint32_t i = 0; i < nactive; ++i) {
+                    auto &vertex = _vertices[_active[i]];
+                    vertex.excess +=
+                        vertex.new_excess.load(std::memory_order_relaxed);
+                    vertex.new_excess.store(0, std::memory_order_relaxed);
+                    vertex.discovered.clear(std::memory_order_relaxed);
                 }
             }
 
             if (_relabel_progress * GLOBAL_RELABEL_FREQ >= _relabel_threshold ||
-                push_cnt_per_phase == 0) {
+                push_per_phase == 0) {
                 _relabel_progress = 0;
                 global_relabel();
             }
 
-            _push_cnt += push_cnt_per_phase;
+            npush += push_per_phase;
         }
     }
 
     inline void push(const uint32_t vertex, const uint32_t label, int thr_id,
                      uint64_t &push_cnt) noexcept {
         const auto target_label = label - 1;
-        for (auto &edge : _residual_network[vertex]) {
-            if (edge.r_capacity > 0 &&
-                _vertices[edge.dst_vertex].label == target_label) {
-                auto flow = std::min(_vertices[vertex].excess, edge.r_capacity);
-                if (edge.dst_vertex != _source && edge.dst_vertex != _sink)
-                    if (!_vertices[edge.dst_vertex].discovered.test_and_set(
+        for (auto &edge : residual[vertex]) {
+            if (edge.cap > 0 && _vertices[edge.dst].label == target_label) {
+                auto flow = std::min(_vertices[vertex].excess, edge.cap);
+                if (edge.dst != _source && edge.dst != _sink)
+                    if (!_vertices[edge.dst].discovered.test_and_set(
                             std::memory_order_relaxed))
-                        _pool.push_back(edge.dst_vertex,
-                                        static_cast<size_t>(thr_id));
+                        _pool.push_back(edge.dst, static_cast<size_t>(thr_id));
                 ++push_cnt;
                 _vertices[vertex].excess -= flow;
-                _vertices[edge.dst_vertex].new_excess.fetch_add(
+                _vertices[edge.dst].new_excess.fetch_add(
                     flow, std::memory_order_relaxed);
-                edge.r_capacity -= flow;
-                edge.reverse_r_capacity += flow;
-                _residual_network[edge.dst_vertex][edge.reverse_edge_index]
-                    .reverse_r_capacity -= flow;
-                _residual_network[edge.dst_vertex][edge.reverse_edge_index]
-                    .r_capacity += flow;
+                edge.cap -= flow;
+                edge.rev_cap += flow;
+                residual[edge.dst][edge.rev_index].rev_cap -= flow;
+                residual[edge.dst][edge.rev_index].cap += flow;
                 if (_vertices[vertex].excess == 0)
                     return;
             }
@@ -205,11 +197,11 @@ class max_flow_instance {
     inline void relabel(const uint32_t vertex, const int thr_id,
                         std::size_t &relabel_progress) noexcept {
         if (_vertices[vertex].excess > 0 ||
-            _vertices[vertex].label == _residual_network.size()) {
+            _vertices[vertex].label == residual.size()) {
             relabel_progress += BETA;
             _vertices[vertex].new_label = calculate_new_label(vertex);
-            relabel_progress += _residual_network[vertex].size();
-            if (_vertices[vertex].new_label == _residual_network.size()) {
+            relabel_progress += residual[vertex].size();
+            if (_vertices[vertex].new_label == residual.size()) {
                 _vertices[vertex].excess += _vertices[vertex].new_excess;
                 _vertices[vertex].new_excess = 0;
                 return;
@@ -223,23 +215,22 @@ class max_flow_instance {
     }
 
     inline uint32_t calculate_new_label(const uint32_t vertex) noexcept {
-        uint32_t increase_to = _residual_network.size() - 1;
-        for (auto &edge : _residual_network[vertex]) {
-            if (edge.r_capacity == 0)
+        uint32_t increase_to = residual.size() - 1;
+        for (auto &edge : residual[vertex]) {
+            if (edge.cap == 0)
                 continue;
 
-            increase_to =
-                std::min(increase_to, _vertices[edge.dst_vertex].label);
+            increase_to = std::min(increase_to, _vertices[edge.dst].label);
         }
         return increase_to + 1;
     }
 
     void global_relabel() noexcept {
-        ++_global_update_cnt;
-        const auto not_reached = _residual_network.size();
+        ++nupdate;
+        const auto not_reached = residual.size();
 
 #pragma omp parallel for schedule(static)
-        for (std::size_t i = 0; i < _residual_network.size(); ++i)
+        for (std::size_t i = 0; i < residual.size(); ++i)
             _vertices[i].label = not_reached;
 
         _vertices[_sink].label = 0;
@@ -255,13 +246,12 @@ class max_flow_instance {
                 auto thr_id = omp_get_thread_num();
                 auto current_vertex = _active[i];
 
-                for (auto edge : _residual_network[current_vertex]) {
-                    if (edge.reverse_r_capacity > 0) {
-                        if (!_vertices[edge.dst_vertex].discovered.test_and_set(
+                for (auto edge : residual[current_vertex]) {
+                    if (edge.rev_cap > 0) {
+                        if (!_vertices[edge.dst].discovered.test_and_set(
                                 std::memory_order_relaxed)) {
-                            _vertices[edge.dst_vertex].label =
-                                current_distance + 1;
-                            _pool.push_back(edge.dst_vertex,
+                            _vertices[edge.dst].label = current_distance + 1;
+                            _pool.push_back(edge.dst,
                                             static_cast<std::size_t>(thr_id));
                         }
                     }
@@ -272,7 +262,7 @@ class max_flow_instance {
         }
 
 #pragma omp parallel for schedule(static)
-        for (std::size_t i = 0; i < _residual_network.size(); ++i) {
+        for (std::size_t i = 0; i < residual.size(); ++i) {
             auto thr_id = omp_get_thread_num();
             if (_vertices[i].label != not_reached && _vertices[i].excess > 0 &&
                 i != _sink)
@@ -280,7 +270,7 @@ class max_flow_instance {
             _vertices[i].discovered.clear(std::memory_order_relaxed);
         }
 
-        _active_cnt = _pool.swap_data(_active);
+        nactive = _pool.swap_data(_active);
     }
 };
 } // namespace parallel_push_relabel

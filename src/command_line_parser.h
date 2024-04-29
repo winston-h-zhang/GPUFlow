@@ -32,7 +32,7 @@ class command_line_parser {
     solver _solver;
     std::string _solver_str;
     std::string _input_filename;
-    std::size_t _thread_count = 0;
+    std::size_t nthreads = 0;
 
     std::unordered_map<std::string, solver> solver_map = {{"prf", solver::prf},
                                                           {"ppr", solver::ppr}};
@@ -70,8 +70,8 @@ class command_line_parser {
                 _input_filename = argv[i + 1];
             else if (!strcmp(argv[i], "-p")) {
                 try {
-                    _thread_count = std::stoul(argv[i + 1]);
-                    if (_thread_count == 0)
+                    nthreads = std::stoul(argv[i + 1]);
+                    if (nthreads == 0)
                         throw std::invalid_argument(
                             "positive integer expected");
                 } catch (...) {
@@ -95,8 +95,8 @@ class command_line_parser {
                    : std::optional<std::string>{_input_filename};
     }
 
-    std::size_t get_thread_count() const noexcept {
-        return _thread_count == 0 ? omp_get_max_threads() : _thread_count;
+    std::size_t getnthreads() const noexcept {
+        return nthreads == 0 ? omp_get_max_threads() : nthreads;
     }
 
     solver get_solver() const noexcept { return _solver; }

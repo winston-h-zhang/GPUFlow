@@ -59,13 +59,13 @@ auto load_graph(std::istream &is) {
             auto it = edge_map[from].find(to);
             // handle multi edges
             if (it != std::end(edge_map[from])) {
-                edges[it->second].r_capacity += cap;
+                edges[it->second].cap += cap;
                 break;
             }
             it = edge_map[to].find(from);
             // handle backward edges
             if (it != std::end(edge_map[to]))
-                edges[it->second + 1].r_capacity += cap;
+                edges[it->second + 1].cap += cap;
             else {
                 edges[pos] = edge{to, cap, undefined};
                 edges[pos + 1] = edge{from, 0, undefined};
@@ -112,8 +112,7 @@ auto load_graph(std::istream &is) {
         auto &edge = edges[i];
         auto &reverse_edge = edges[i + 1];
 
-        graph[reverse_edge.dst_vertex].emplace_back(edge.dst_vertex,
-                                                    edge.r_capacity, i + 1);
+        graph[reverse_edge.dst].emplace_back(edge.dst, edge.cap, i + 1);
     }
 
     auto sizes = std::make_unique<uint32_t[]>(graph.size());
@@ -124,21 +123,20 @@ auto load_graph(std::istream &is) {
     for (std::size_t i = 0; i < graph.size(); ++i) {
         for (std::size_t k = 0; k < sizes[i]; ++k) {
             auto &edge = graph[i][k];
-            auto reverse_edge = edges[edge.reverse_edge_index];
-            edge.reverse_edge_index = graph[edge.dst_vertex].size();
-            graph[edge.dst_vertex].emplace_back(i, reverse_edge.r_capacity, k);
+            auto reverse_edge = edges[edge.rev_index];
+            edge.rev_index = graph[edge.dst].size();
+            graph[edge.dst].emplace_back(i, reverse_edge.cap, k);
         }
     }
 
     return std::make_tuple(std::move(graph), source, sink);
 }
 
-// Set reverse_r_capacity for cached edges used in push-relabel methods.
+// Set rev_cap for cached edges used in push-relabel methods.
 void set_reverse_edge_cap(std::vector<std::vector<edge>> &graph) {
     for (auto &vec : graph)
         for (auto &edge : vec)
-            edge.reverse_r_capacity =
-                graph[edge.dst_vertex][edge.reverse_edge_index].r_capacity;
+            edge.rev_cap = graph[edge.dst][edge.rev_index].cap;
 }
 
 #endif // MAXFLOW_GRAPH_LOADER_H

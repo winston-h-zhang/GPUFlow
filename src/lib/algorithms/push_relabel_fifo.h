@@ -19,21 +19,21 @@ class max_flow_instance {
         uint32_t label;
     };
     using pair = std::pair<uint32_t, uint32_t>;
-    std::vector<std::vector<edge>> _residual_network;
+    std::vector<std::vector<edge>> residual;
     std::unique_ptr<vertex[]> _vertices;
     std::queue<uint32_t> _q;
     std::queue<pair> _distance_q;
     uint32_t _source, _sink, _relabel_progress{0}, _relabel_threshold;
 
     // statistics
-    uint64_t _push_cnt{0}, _relabel_cnt{0}, _global_relabel_cnt{0};
+    uint64_t npush{0}, nrelabel{0}, nglobal{0};
 
   public:
-    max_flow_instance(std::vector<std::vector<edge>> graph, uint32_t source, uint32_t sink)
-        : _residual_network(std::move(graph)),
-          _vertices(std::make_unique<vertex[]>(_residual_network.size())),
-          _q(std::queue<uint32_t>{}),
-          _distance_q(std::queue<pair>{}),
+    max_flow_instance(std::vector<std::vector<edge>> graph, uint32_t source,
+                      uint32_t sink)
+        : residual(std::move(graph)),
+          _vertices(std::make_unique<vertex[]>(residual.size())),
+          _q(std::queue<uint32_t>{}), _distance_q(std::queue<pair>{}),
           _source(source), _sink(sink) {
         init();
     }
@@ -41,9 +41,9 @@ class max_flow_instance {
     uint32_t find_max_flow() {
         find_max_flow_inner();
 #ifdef DEBUG
-        std::cout << "pushes:\t\t" << _push_cnt << std::endl;
-        std::cout << "relabels:\t" << _relabel_cnt << std::endl;
-        std::cout << "global updates:\t" << _global_relabel_cnt << std::endl;
+        std::cout << "pushes:\t\t" << npush << std::endl;
+        std::cout << "relabels:\t" << nrelabel << std::endl;
+        std::cout << "global updates:\t" << nglobal << std::endl;
 #endif
         return _vertices[_sink].excess;
     }
@@ -53,7 +53,7 @@ class max_flow_instance {
         find_max_flow_inner();
         std::swap(_source, _sink);
 #ifdef DEBUG
-        for (std::size_t i = 0; i < _residual_network.size(); ++i)
+        for (std::size_t i = 0; i < residual.size(); ++i)
             if (i != _source && i != _sink)
                 if (_vertices[i].excess > 0)
                     std::cerr << "Excess violation: vertex " << i << ", excess "
@@ -61,30 +61,28 @@ class max_flow_instance {
 #endif
     }
 
-    auto steal_network() { return std::move(_residual_network); }
+    auto steal_network() { return std::move(residual); }
 
   private:
     static constexpr uint32_t ALPHA = 6, BETA = 12;
     static constexpr double GLOBAL_RELABEL_FREQ = 0.5;
 
     void init() {
-        for (auto &edge : _residual_network[_source]) {
-            if (edge.r_capacity > 0) {
-                _vertices[edge.dst_vertex].excess = edge.r_capacity;
-                edge.reverse_r_capacity += edge.r_capacity;
-                _residual_network[edge.dst_vertex][edge.reverse_edge_index]
-                    .r_capacity += edge.r_capacity;
-                _residual_network[edge.dst_vertex][edge.reverse_edge_index]
-                    .reverse_r_capacity -= edge.r_capacity;
-                edge.r_capacity = 0;
-                ++_push_cnt;
+        for (auto &edge : residual[_source]) {
+            if (edge.cap > 0) {
+                _vertices[edge.dst].excess = edge.cap;
+                edge.rev_cap += edge.cap;
+                residual[edge.dst][edge.rev_index].cap += edge.cap;
+                residual[edge.dst][edge.rev_index].rev_cap -= edge.cap;
+                edge.cap = 0;
+                ++npush;
             }
         }
 
         uint32_t m = 0;
-        for (auto &vec : _residual_network)
+        for (auto &vec : residual)
             m += vec.size();
-        _relabel_threshold = _residual_network.size() * ALPHA + m / 2;
+        _relabel_threshold = residual.size() * ALPHA + m / 2;
     }
 
     void find_max_flow_inner() {
@@ -106,7 +104,7 @@ class max_flow_instance {
     }
 
     void discharge(const uint32_t vertex, uint32_t label) {
-        while (label < _residual_network.size()) {
+        while (label < residual.size()) {
             if (push(vertex, label))
                 return;
             label = relabel(vertex);
@@ -115,22 +113,18 @@ class max_flow_instance {
 
     bool push(const uint32_t vertex, const uint32_t label) {
         const auto target_label = label - 1;
-        for (auto &edge : _residual_network[vertex]) {
-            if (edge.r_capacity > 0 &&
-                _vertices[edge.dst_vertex].label == target_label) {
-                ++_push_cnt;
-                auto flow = std::min(_vertices[vertex].excess, edge.r_capacity);
-                if (_vertices[edge.dst_vertex].excess == 0 &&
-                    edge.dst_vertex != _sink)
-                    _q.push(edge.dst_vertex);
+        for (auto &edge : residual[vertex]) {
+            if (edge.cap > 0 && _vertices[edge.dst].label == target_label) {
+                ++npush;
+                auto flow = std::min(_vertices[vertex].excess, edge.cap);
+                if (_vertices[edge.dst].excess == 0 && edge.dst != _sink)
+                    _q.push(edge.dst);
                 _vertices[vertex].excess -= flow;
-                _vertices[edge.dst_vertex].excess += flow;
-                edge.r_capacity -= flow;
-                edge.reverse_r_capacity += flow;
-                _residual_network[edge.dst_vertex][edge.reverse_edge_index]
-                    .reverse_r_capacity -= flow;
-                _residual_network[edge.dst_vertex][edge.reverse_edge_index]
-                    .r_capacity += flow;
+                _vertices[edge.dst].excess += flow;
+                edge.cap -= flow;
+                edge.rev_cap += flow;
+                residual[edge.dst][edge.rev_index].rev_cap -= flow;
+                residual[edge.dst][edge.rev_index].cap += flow;
                 if (_vertices[vertex].excess == 0)
                     return true;
             }
@@ -139,29 +133,28 @@ class max_flow_instance {
     }
 
     uint32_t relabel(const uint32_t vertex) {
-        ++_relabel_cnt;
+        ++nrelabel;
         _relabel_progress += BETA;
         _vertices[vertex].label = calculate_new_label(vertex);
         return _vertices[vertex].label;
     }
 
     uint32_t calculate_new_label(const uint32_t vertex) {
-        uint32_t increase_to = _residual_network.size() - 1;
-        for (auto &edge : _residual_network[vertex]) {
-            if (edge.r_capacity == 0)
+        uint32_t increase_to = residual.size() - 1;
+        for (auto &edge : residual[vertex]) {
+            if (edge.cap == 0)
                 continue;
-            increase_to =
-                std::min(increase_to, _vertices[edge.dst_vertex].label);
+            increase_to = std::min(increase_to, _vertices[edge.dst].label);
         }
-        _relabel_progress += _residual_network[vertex].size();
+        _relabel_progress += residual[vertex].size();
         return increase_to + 1;
     }
 
     void global_relabel() {
-        ++_global_relabel_cnt;
-        auto not_reached = _residual_network.size();
+        ++nglobal;
+        auto not_reached = residual.size();
 
-        for (std::size_t i = 0; i < _residual_network.size(); ++i)
+        for (std::size_t i = 0; i < residual.size(); ++i)
             _vertices[i].label = not_reached;
 
         _q = std::queue<uint32_t>();
@@ -175,14 +168,14 @@ class max_flow_instance {
 
             auto current_vertex = current_elem.first;
             auto current_distance = current_elem.second;
-            for (auto &edge : _residual_network[current_vertex]) {
-                if (edge.reverse_r_capacity > 0 &&
-                    _vertices[edge.dst_vertex].label == not_reached) {
-                    _vertices[edge.dst_vertex].label = current_distance + 1;
+            for (auto &edge : residual[current_vertex]) {
+                if (edge.rev_cap > 0 &&
+                    _vertices[edge.dst].label == not_reached) {
+                    _vertices[edge.dst].label = current_distance + 1;
                     _distance_q.push(
-                        std::make_pair(edge.dst_vertex, current_distance + 1));
-                    if (_vertices[edge.dst_vertex].excess > 0)
-                        _q.push(edge.dst_vertex);
+                        std::make_pair(edge.dst, current_distance + 1));
+                    if (_vertices[edge.dst].excess > 0)
+                        _q.push(edge.dst);
                 }
             }
         }
